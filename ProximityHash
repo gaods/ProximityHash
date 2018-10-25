@@ -1,0 +1,236 @@
+package com.jd.jrbdp.jrm.address.common;
+
+import ch.hsr.geohash.GeoHash;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+
+/**
+ * Created by gaodashen1 on 2018/9/13.
+ * 区域性敏感 geohash
+ * 有python版 可参考 github
+ */
+public class ProximityHash {
+
+
+
+    public List<String> createGeoHash(Double latitude, Double longitude, int radius) {
+        return createGeoHash(latitude,longitude,radius,7,true,3,7);
+    }
+
+    public List<String> createGeoHash(Double latitude, Double longitude, int radius, Integer precision,boolean georaptorFlag,int minLevel,int maxLevel) {
+
+        double x = 0.0;
+        double y = 0.0;
+
+        List<HashMap> points = new ArrayList<HashMap>();
+        List<String> geohashes = new ArrayList<String>();
+
+
+        double[] grid_width = {5009400.0, 1252300.0, 156500.0, 39100.0, 4900.0, 1200.0, 152.9, 38.2, 4.8, 1.2, 0.149, 0.0370};
+        double[] grid_height = {4992600.0, 624100.0, 156000.0, 19500.0, 4900.0, 609.4, 152.4, 19.0, 4.8, 0.595, 0.149, 0.0199};
+
+        double height = (grid_height[precision - 1]) / 2;
+        double width = (grid_width[precision - 1]) / 2;
+
+        System.out.print(height + "" + width);
+        double lat_moves = Double.valueOf(Math.ceil(radius / height)).intValue();
+        double lon_moves = Double.valueOf(Math.ceil(radius / width)).intValue();
+        System.out.print(lat_moves + "" + lon_moves);
+
+        for (int i = 0; i < lat_moves; i++) {
+            double tempLat = y + height * i;
+            for (int j = 0; j < lon_moves; j++) {
+                double temp_lon = x + width * j;
+                if (in_circle_check(tempLat, temp_lon, y, x, radius)) {
+
+                    HashMap cenMap = get_centroid(tempLat, temp_lon, height, width);
+                    double y_cen = (double) cenMap.get("y_cen");
+                    double x_cen = (double) cenMap.get("x_cen");
+
+                    HashMap laloMap = convert_to_latlon(y_cen, x_cen, latitude, longitude);
+                    points.add(laloMap);
+                    HashMap laloMap1 = convert_to_latlon(-y_cen, x_cen, latitude, longitude);
+
+                    points.add(laloMap1);
+
+                    HashMap laloMap2 = convert_to_latlon(y_cen, -x_cen, latitude, longitude);
+                    points.add(laloMap2);
+                    HashMap laloMap3 = convert_to_latlon(-y_cen, -x_cen, latitude, longitude);
+                    points.add(laloMap3);
+                }
+            }
+        }
+
+
+        for (HashMap point : points) {
+            geohashes.add(GeoHash.geoHashStringWithCharacterPrecision((double) point.get("final_lat"), (double) point.get("final_lon"), precision));
+        }
+
+        if(georaptorFlag)
+            return compress(geohashes,minLevel,maxLevel);
+
+        return geohashes;
+    }
+
+
+    private boolean in_circle_check(double latitude, double longitude, double centre_lat, double centre_lon, Integer radius) {
+        double x_diff = longitude - centre_lon;
+        double y_diff = latitude - centre_lat;
+        if (Math.pow(x_diff, 2) + Math.pow(y_diff, 2) <= Math.pow(radius, 2))
+            return true;
+
+        return false;
+
+    }
+
+    private HashMap get_centroid(double latitude, double longitude, double height, double width) {
+        HashMap cenMap = new HashMap();
+        double y_cen = latitude + (height / 2);
+        double x_cen = longitude + (width / 2);
+        cenMap.put("y_cen", y_cen);
+        cenMap.put("x_cen", x_cen);
+        return cenMap;
+    }
+
+
+    private HashMap convert_to_latlon(double y, double x, double latitude, double longitude) {
+        double pi = 3.14159265359;
+
+        int r_earth = 6371000;
+
+        double lat_diff = (y / r_earth) * (180 / pi);
+        double lon_diff = (x / r_earth) * (180 / pi) / Math.cos(latitude * pi / 180);
+
+        double final_lat = latitude + lat_diff;
+        double final_lon = longitude + lon_diff;
+
+        HashMap cenMap = new HashMap();
+        cenMap.put("final_lat", final_lat);
+        cenMap.put("final_lon", final_lon);
+
+        return cenMap;
+    }
+
+
+    /**
+     * 压缩下  由 7位变到 6位减小读取的数量
+     */
+
+
+    private List<String> compress(List<String> geoHashs, int minLevel, int maxLevel) {
+
+        boolean flag = true;
+        int finalGeohashesSize = 0;
+        List<String> finalGeohashes=new ArrayList<>();
+        List<String> deletegh = new ArrayList<>();
+
+        if(geoHashs.size()==0)
+            return geoHashs;
+
+        while(flag){
+            finalGeohashes.clear();
+            deletegh.clear();
+            for (String geohash : geoHashs) {
+                int geoHashLength = geohash.length();
+
+                if (geoHashLength >= minLevel) {
+
+                    String part = geohash.substring(0, geoHashLength - 1);
+                    if (!deletegh.contains(part) && !deletegh.contains(geohash)) {
+                        List<String> combinations=getCombinations(part);
+
+                        if(isSubSet(combinations,geoHashs)){
+                            finalGeohashes.add(part);
+                            deletegh.add(part);
+                        }else{
+                            deletegh.add(geohash);
+                            if(geoHashLength>=maxLevel){
+                                finalGeohashes.add(geohash.substring(0,maxLevel));
+                            }else{
+                                finalGeohashes.add(geohash);
+                            }
+                            if(finalGeohashesSize==finalGeohashes.size())
+                                flag=false;
+                        }
+
+
+                    }
+
+                }
+
+
+
+            }
+            finalGeohashesSize=finalGeohashes.size();
+
+            geoHashs.clear();
+            for(String temp:finalGeohashes){
+                geoHashs.add(temp);
+            }
+
+        }
+
+
+        return geoHashs;
+    }
+
+    /**
+     * 判断 list1 是不是 list2的 子列表
+     * @param list1
+     * @param list2
+     * @return
+     */
+    private boolean isSubSet(List<String> list1,List<String> list2){
+        if(list1==null||list1.isEmpty()||list2==null||list2.isEmpty()){
+            return false;
+        }
+
+        for(String temp:list1){
+            if(!list2.contains(temp))
+                return false;
+        }
+
+        return true;
+    }
+
+
+    private List<String> getCombinations(String str) {
+        String[] base32 = {"0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "b", "c", "d", "e", "f", "g", "h", "j", "k", "m",
+                "n", "p", "q", "r", "s", "t", "u", "v", "w", "x", "y", "z"};
+        List<String> strList = new ArrayList<>();
+
+        for(String temp:base32){
+            strList.add(str+temp);
+        }
+        return strList;
+    }
+
+    public static void main(String[] args) {
+
+        ProximityHash proximityHash = new ProximityHash();
+
+        double lat = 34.276080797698;
+        double lon = 108.9545193757;
+        int radius = 1000;
+        int precision = 7;
+        long start = System.currentTimeMillis();
+        List<String> result = proximityHash.createGeoHash(lat, lon, radius, precision,true,1,12);
+        long end = System.currentTimeMillis();
+        for (String temp : result) {
+            if (temp.startsWith("ws0cxp3")) {
+
+                break;
+            }
+        }
+        System.out.println("size:" + result.size() + " time :" + (end - start));
+        String geoTemp = "abcdefg";
+        String part = geoTemp.substring(0, geoTemp.length() - 1);
+        System.out.print(part);
+
+
+    }
+
+
+}
