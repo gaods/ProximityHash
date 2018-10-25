@@ -1,0 +1,2 @@
+# ProximityHash
+ProximityHash java版
