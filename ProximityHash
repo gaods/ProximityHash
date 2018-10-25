@@ -1,4 +1,4 @@
-package com.jd.jrbdp.jrm.address.common;
+package address.common;
 
 import ch.hsr.geohash.GeoHash;
 
